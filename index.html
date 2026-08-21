@@ -63,7 +63,7 @@
           <div class="text-center">
             <p class="text-xs text-sky-700 uppercase font-semibold">Total Récup. Maj. du Mois (avec Bonifications)</p>
             <p id="totalBalance" class="text-3xl font-black text-amber-600">+0h00</p>
-            <p id="missingHoursNotice" class="text-xs font-bold text-rose-600 mt-1 hidden"></p>
+            <p id="missingHoursNotice" class="text-xs font-medium text-slate-500 mt-1 hidden"></p>
           </div>
 
           <!-- Modulateurs de solde -->
@@ -117,7 +117,7 @@
             <select id="dayType" class="w-full border border-slate-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-sky-500 outline-none">
               <option value="WORK_FULL">Journée (08h-12h 13h30-17h30)</option>
               <option value="WORK_HALF">Demi journée (08h-12h)</option>
-              <option value="RH">RH (Matin 08h-12h / Repos A-M)</option>
+              <option value="RH">RH (Repos - 0h prévues)</option>
               <option value="CONGE">C (Congé / RTT)</option>
               <option value="FERIE">Jour Férié</option>
             </select>
@@ -143,11 +143,17 @@
           </div>
         </div>
 
+        <div class="bg-amber-50 p-3 rounded-lg border border-amber-200 space-y-1">
+          <label class="block text-xs font-semibold text-amber-900">Correction manuelle HS / Récup (Optionnel)</label>
+          <input type="text" id="manualHs" placeholder="ex: +01:30 ou -00:45" class="w-full border border-amber-300 rounded-lg p-2 text-sm bg-white focus:ring-2 focus:ring-amber-500 outline-none">
+          <p class="text-[10px] text-amber-700">Laisse vide pour garder le calcul automatique. Renseigne une valeur pour forcer les HS de ce jour.</p>
+        </div>
+
         <div class="bg-slate-50 p-3 rounded-lg border border-slate-200">
           <label class="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
-            <input type="checkbox" id="majFerie" class="rounded text-rose-600 focus:ring-rose-500"> Jour Férié (Toutes les HS à 200%)
+            <input type="checkbox" id="majFerie" class="rounded text-rose-600 focus:ring-rose-500"> Jour Férié (Heures hors planning doublées)
           </label>
-          <span id="sunNotice" class="text-xs text-emerald-600 font-semibold block mt-1 hidden">Dimanche (Toutes les HS sont doublées automatiquement)</span>
+          <span id="sunNotice" class="text-xs text-emerald-600 font-semibold block mt-1 hidden">Dimanche (Heures supp. doublées automatiquement)</span>
         </div>
 
         <div>
@@ -236,6 +242,7 @@
     const dayType = document.getElementById('dayType');
     const mStart = document.getElementById('mStart'); const mEnd = document.getElementById('mEnd');
     const aStart = document.getElementById('aStart'); const aEnd = document.getElementById('aEnd');
+    const manualHs = document.getElementById('manualHs');
     const entryNote = document.getElementById('entryNote');
     const majFerie = document.getElementById('majFerie');
     const sunNotice = document.getElementById('sunNotice');
@@ -266,7 +273,7 @@
 
     function parseFormattedToMinutes(str) {
       if (!str || !str.trim()) return 0;
-      const cleanStr = str.replace('h', ':').trim();
+      const cleanStr = str.replace('h', ':').replace('+', '').trim();
       const isNegative = cleanStr.startsWith('-');
       const parts = cleanStr.replace('-', '').split(':');
       const h = parseInt(parts[0], 10) || 0;
@@ -306,39 +313,50 @@
         else if (pType === 'DEMI') dayType.value = 'WORK_HALF';
         else if (pType === 'RH') dayType.value = 'RH';
         else if (pType === 'C') dayType.value = 'CONGE';
-        dayType.dispatchEvent(new Event('change'));
+        else if (pType === 'FERIE') dayType.value = 'FERIE';
+      } else {
+        const dayOfWeek = dObj.getDay();
+        if (dayOfWeek >= 1 && dayOfWeek <= 5) dayType.value = 'WORK_FULL';
+        else if (dayOfWeek === 6) dayType.value = 'WORK_HALF';
+        else if (dayOfWeek === 0) dayType.value = 'RH';
       }
     });
 
     dayType.addEventListener('change', () => {
       const val = dayType.value;
       if (val === 'WORK_FULL') {
-        mStart.value = "08:00"; mEnd.value = "12:00";
-        aStart.value = "13:30"; aEnd.value = "17:30";
-      } else if (val === 'WORK_HALF' || val === 'RH') {
-        mStart.value = "08:00"; mEnd.value = "12:00";
-        aStart.value = ""; aEnd.value = "";
-      } else if (['CONGE', 'FERIE'].includes(val)) {
-        mStart.value = ""; mEnd.value = "";
+        if (!mStart.value && !mEnd.value) { mStart.value = "08:00"; mEnd.value = "12:00"; }
+        if (!aStart.value && !aEnd.value) { aStart.value = "13:30"; aEnd.value = "17:30"; }
+      } else if (val === 'WORK_HALF') {
+        if (!mStart.value && !mEnd.value) { mStart.value = "08:00"; mEnd.value = "12:00"; }
         aStart.value = ""; aEnd.value = "";
       }
     });
 
-    // CALCUL CONFORME A LA FEUILLE DE LA COMMUNE
     function calculateDayHours(entry, dateKey) {
       const dateObj = new Date(dateKey);
-      const dayOfWeek = dateObj.getDay(); // 0 = Dimanche, 6 = Samedi
-
-      let theoretical = 480; // 8h semaine
-      if (dayOfWeek === 6) theoretical = 240; // 4h samedi
-      if (dayOfWeek === 0) theoretical = 0;   // 0h dimanche
-
-      if (entry.type === 'RH' || entry.type === 'WORK_HALF') theoretical = 240;
-      if (entry.type === 'FERIE' || dayOfWeek === 0) theoretical = 0;
-
+      const dayOfWeek = dateObj.getDay();
       const planning = getStoredPlanning();
-      if (planning[dateKey] && planning[dateKey].theoretical !== undefined && dayOfWeek !== 0 && entry.type !== 'FERIE') {
-        theoretical = planning[dateKey].theoretical;
+      const plannedDay = planning[dateKey];
+
+      let theoretical = 0;
+
+      if (entry.type === 'RH' || entry.type === 'FERIE') {
+        theoretical = 0;
+      } else if (entry.type === 'WORK_HALF') {
+        theoretical = 240;
+      } else if (entry.type === 'WORK_FULL' || entry.type === 'CONGE') {
+        theoretical = 480;
+      } else if (plannedDay) {
+        if (plannedDay.type === 'JOURNEE') theoretical = 480;
+        else if (plannedDay.type === 'DEMI') theoretical = 240;
+        else if (plannedDay.type === 'RH' || plannedDay.type === 'FERIE') theoretical = 0;
+        else if (plannedDay.type === 'C') theoretical = 480;
+        else theoretical = plannedDay.theoretical || 0;
+      } else {
+        if (dayOfWeek >= 1 && dayOfWeek <= 5) theoretical = 480;
+        else if (dayOfWeek === 6) theoretical = 240;
+        else if (dayOfWeek === 0) theoretical = 0;
       }
 
       let workedCalculated = 0;
@@ -360,12 +378,8 @@
       parseSpan(entry.mStart, entry.mEnd);
       parseSpan(entry.aStart, entry.aEnd);
 
-      const isCongesOrFerie = ['CONGE', 'FERIE'].includes(entry.type);
-      let worked = (isCongesOrFerie && workedCalculated === 0) ? theoretical : workedCalculated;
-
-      if (isCongesOrFerie && workedCalculated > 0) {
-        theoretical = 0;
-      }
+      const isConges = entry.type === 'CONGE';
+      let worked = (isConges && workedCalculated === 0) ? theoretical : workedCalculated;
 
       const rawBalance = worked - theoretical;
       let hsJour = 0, hsNuit = 0, hsDimFerie = 0;
@@ -376,10 +390,8 @@
 
       if (rawBalance > 0) {
         if (isSpecialDay) {
-          // Dimanche ou Férié : 100% des heures travaillées sont doublées
-          hsDimFerie = worked;
+          hsDimFerie = rawBalance;
         } else {
-          // Séparation Nuit (22h00 - 07h00)
           const workedMinutes = [];
           spans.forEach(span => {
             for (let m = span.start; m < span.end; m++) {
@@ -416,7 +428,15 @@
         missingMinutes = Math.abs(rawBalance);
       }
 
-      const totalHsBonified = (hsJour * 1) + (hsNuit * 2) + (hsDimFerie * 2);
+      // CORRECTION : Les heures non faites ne sont plus déduites des heures supp.
+      let totalHsBonified = (hsJour * 1) + (hsNuit * 2) + (hsDimFerie * 2);
+      let isManualHs = false;
+
+      // Prise en compte de la correction manuelle si saisie
+      if (entry.manualHs && entry.manualHs.trim() !== '') {
+        totalHsBonified = parseFormattedToMinutes(entry.manualHs);
+        isManualHs = true;
+      }
 
       return {
         theoretical,
@@ -426,6 +446,7 @@
         hsNuit: roundTo15Minutes(hsNuit),
         hsDimFerie: roundTo15Minutes(hsDimFerie),
         totalHsBonified: roundTo15Minutes(totalHsBonified),
+        isManualHs,
         missingMinutes: roundTo15Minutes(missingMinutes)
       };
     }
@@ -438,6 +459,7 @@
         type: dayType.value,
         mStart: mStart.value, mEnd: mEnd.value,
         aStart: aStart.value, aEnd: aEnd.value,
+        manualHs: manualHs.value,
         note: entryNote.value,
         majFerie: majFerie.checked || dayType.value === 'FERIE'
       };
@@ -452,6 +474,7 @@
       dayType.value = entry.type || 'WORK_FULL';
       mStart.value = entry.mStart || ''; mEnd.value = entry.mEnd || '';
       aStart.value = entry.aStart || ''; aEnd.value = entry.aEnd || '';
+      manualHs.value = entry.manualHs || '';
       entryNote.value = entry.note || '';
       majFerie.checked = !!entry.majFerie;
       
@@ -472,7 +495,7 @@
       document.getElementById('formTitle').textContent = "Saisie journalière";
       saveBtn.textContent = "Enregistrer la journée";
       cancelEditBtn.classList.add('hidden');
-      entryNote.value = ""; majFerie.checked = false;
+      manualHs.value = ""; entryNote.value = ""; majFerie.checked = false;
     }
     cancelEditBtn.addEventListener('click', resetForm);
 
@@ -531,12 +554,15 @@
         const dateFormatted = dateObj.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' });
         
         let hsDetailStr = "";
-        if (res.hsJour > 0) hsDetailStr += `Jour: +${formatMinutes(res.hsJour)} `;
-        if (res.hsNuit > 0) hsDetailStr += `Nuit (x2): +${formatMinutes(res.hsNuit * 2)} `;
-        if (res.hsDimFerie > 0) hsDetailStr += `Dim/Férié (x2): +${formatMinutes(res.hsDimFerie * 2)} `;
-        if (res.missingMinutes > 0) hsDetailStr += `⚠️ Manque d'heures: -${formatMinutes(res.missingMinutes)}`;
+        if (res.isManualHs) {
+          hsDetailStr = "Ajustement manuel";
+        } else {
+          if (res.hsJour > 0) hsDetailStr += `Jour: +${formatMinutes(res.hsJour)} `;
+          if (res.hsNuit > 0) hsDetailStr += `Nuit (x2): +${formatMinutes(res.hsNuit * 2)} `;
+          if (res.hsDimFerie > 0) hsDetailStr += `Dim/Férié (x2): +${formatMinutes(res.hsDimFerie * 2)} `;
+        }
 
-        const balanceClass = res.totalHsBonified > 0 ? 'text-amber-600 font-bold' : (res.missingMinutes > 0 ? 'text-rose-600 font-bold' : 'text-slate-500');
+        const balanceClass = res.totalHsBonified > 0 ? 'text-amber-600 font-bold' : (res.totalHsBonified < 0 ? 'text-rose-600 font-bold' : 'text-slate-500');
 
         const div = document.createElement('div');
         div.className = "bg-white p-3 rounded-lg border border-slate-200 shadow-sm flex justify-between items-center text-xs";
@@ -549,7 +575,7 @@
           <div class="flex items-center gap-3">
             <div class="text-right">
               <p class="font-semibold text-slate-700">${formatMinutes(res.worked)}</p>
-              <p class="${balanceClass}">${res.totalHsBonified > 0 ? '+' + formatMinutes(res.totalHsBonified) : (res.missingMinutes > 0 ? '-' + formatMinutes(res.missingMinutes) : '0h00')}</p>
+              <p class="${balanceClass}">${res.totalHsBonified > 0 ? '+' + formatMinutes(res.totalHsBonified) : formatMinutes(res.totalHsBonified)}</p>
               ${hsDetailStr ? `<span class="block text-[9px] bg-sky-50 text-sky-700 rounded px-1 mt-0.5 border border-sky-100 font-medium">${hsDetailStr}</span>` : ''}
             </div>
             <div class="flex flex-col gap-1 border-l pl-2 border-slate-100">
@@ -561,19 +587,16 @@
         entriesList.appendChild(div);
       });
 
-      const rM1Mins = parseFormattedToMinutes(reportM1.value);
-      const paidMins = parseFormattedToMinutes(paidHours.value);
-      const recupMins = parseFormattedToMinutes(recupHours.value);
-
       document.getElementById('totalTheoretical').textContent = formatMinutes(totalTheo);
       document.getElementById('totalWorked').textContent = formatMinutes(totalWork);
       
       const balEl = document.getElementById('totalBalance');
-      balEl.textContent = `+${formatMinutes(totalHsBonified)}`;
+      balEl.textContent = totalHsBonified > 0 ? `+${formatMinutes(totalHsBonified)}` : formatMinutes(totalHsBonified);
+      balEl.className = totalHsBonified > 0 ? "text-3xl font-black text-amber-600" : (totalHsBonified < 0 ? "text-3xl font-black text-rose-600" : "text-3xl font-black text-slate-700");
 
       const noticeEl = document.getElementById('missingHoursNotice');
       if (totalMissingMinutes > 0) {
-        noticeEl.textContent = `⚠️ Attention : Il y a un manque d'heures de ${formatMinutes(totalMissingMinutes)} sur le mois (non déduit des HS).`;
+        noticeEl.textContent = `Info : ${formatMinutes(totalMissingMinutes)} d'heures non faites dans le mois (non déduites du solde HS).`;
         noticeEl.classList.remove('hidden');
       } else {
         noticeEl.classList.add('hidden');
@@ -604,7 +627,7 @@
         const dateKey = d.toISOString().split('T')[0];
         const dayLabel = d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'short' });
         
-        const currentVal = planning[dateKey] ? planning[dateKey].type : (i < 5 ? 'JOURNEE' : 'RH');
+        const currentVal = planning[dateKey] ? planning[dateKey].type : (i < 5 ? 'JOURNEE' : (i === 5 ? 'DEMI' : 'RH'));
 
         let dayTheo = planning[dateKey] ? planning[dateKey].theoretical : (i < 5 ? 480 : (i === 5 ? 240 : 0));
         weekTheo += dayTheo;
@@ -622,8 +645,9 @@
           <select data-date="${dateKey}" class="week-day-select border border-slate-300 rounded p-1.5 bg-white text-slate-700 focus:ring-2 focus:ring-sky-500 outline-none w-2/3">
             <option value="JOURNEE" ${currentVal === 'JOURNEE' ? 'selected' : ''}>Journée (08h-12h 13h30-17h30)</option>
             <option value="DEMI" ${currentVal === 'DEMI' ? 'selected' : ''}>Demi journée (08h-12h)</option>
-            <option value="RH" ${currentVal === 'RH' ? 'selected' : ''}>RH (Matin 08h-12h / Repos A-M)</option>
+            <option value="RH" ${currentVal === 'RH' ? 'selected' : ''}>RH (Repos - 0h prévues)</option>
             <option value="C" ${currentVal === 'C' ? 'selected' : ''}>C (Congé)</option>
+            <option value="FERIE" ${currentVal === 'FERIE' ? 'selected' : ''}>Jour Férié</option>
           </select>
         `;
         container.appendChild(row);
@@ -638,8 +662,8 @@
       document.getElementById('weekTheoDisplay').textContent = formatMinutes(weekTheo);
       document.getElementById('weekWorkDisplay').textContent = formatMinutes(weekWork);
       const wBalEl = document.getElementById('weekBalDisplay');
-      wBalEl.textContent = `+${formatMinutes(weekWeightedBal)}`;
-      wBalEl.className = weekWeightedBal > 0 ? 'text-amber-600 font-bold' : 'text-slate-800';
+      wBalEl.textContent = weekWeightedBal > 0 ? `+${formatMinutes(weekWeightedBal)}` : formatMinutes(weekWeightedBal);
+      wBalEl.className = weekWeightedBal > 0 ? 'text-amber-600 font-bold' : (weekWeightedBal < 0 ? 'text-rose-600 font-bold' : 'text-slate-800');
     }
 
     weekStartPicker.addEventListener('change', renderWeeklyInputs);
@@ -658,8 +682,9 @@
         if (dayOfWeek === 6) theoretical = 240;
         if (dayOfWeek === 0) theoretical = 0;
 
-        if (val === 'DEMI' || val === 'RH') theoretical = 240;
-        else if (val === 'C') theoretical = 480;
+        if (val === 'DEMI') theoretical = 240;
+        else if (val === 'RH' || val === 'FERIE') theoretical = 0;
+        else if (val === 'C' || val === 'JOURNEE') theoretical = 480;
 
         planning[dateKey] = { type: val, theoretical: theoretical };
       });
@@ -761,16 +786,19 @@
         totalTheo += res.theoretical; totalWork += res.worked; totalHsBonified += res.totalHsBonified;
         
         let hsDetails = [];
-        if (res.hsJour > 0) hsDetails.push(`Jour: +${formatMinutes(res.hsJour)}`);
-        if (res.hsNuit > 0) hsDetails.push(`Nuit (x2): +${formatMinutes(res.hsNuit * 2)}`);
-        if (res.hsDimFerie > 0) hsDetails.push(`Dim/Férié (x2): +${formatMinutes(res.hsDimFerie * 2)}`);
-        if (res.missingMinutes > 0) hsDetails.push(`Manque: -${formatMinutes(res.missingMinutes)}`);
+        if (res.isManualHs) {
+          hsDetails.push("Ajustement manuel");
+        } else {
+          if (res.hsJour > 0) hsDetails.push(`Jour: +${formatMinutes(res.hsJour)}`);
+          if (res.hsNuit > 0) hsDetails.push(`Nuit (x2): +${formatMinutes(res.hsNuit * 2)}`);
+          if (res.hsDimFerie > 0) hsDetails.push(`Dim/Férié (x2): +${formatMinutes(res.hsDimFerie * 2)}`);
+        }
 
         tableRows.push([
           date,
           `${entry.mStart || ''}-${entry.mEnd || ''} | ${entry.aStart || ''}-${entry.aEnd || ''}`,
           formatMinutes(res.worked), formatMinutes(res.theoretical),
-          `+${formatMinutes(res.totalHsBonified)}`,
+          res.totalHsBonified > 0 ? `+${formatMinutes(res.totalHsBonified)}` : formatMinutes(res.totalHsBonified),
           hsDetails.join(' | ') || '-', entry.note || ''
         ]);
       });
@@ -787,7 +815,7 @@
 
       doc.text(`Heures faites : ${formatMinutes(totalWork)} | Prévu : ${formatMinutes(totalTheo)}`, 14, y);
       doc.text(`Report M-1 : ${formatMinutes(rM1)} | Payées : ${formatMinutes(paid)} | Récupérées : ${formatMinutes(recup)}`, 14, y + 6);
-      doc.text(`TOTAL RÉCUP. MAJORÉE DU MOIS : +${formatMinutes(totalHsBonified)}`, 14, y + 12);
+      doc.text(`TOTAL RÉCUP. DU MOIS : ${totalHsBonified > 0 ? '+' : ''}${formatMinutes(totalHsBonified)}`, 14, y + 12);
 
       doc.save(`Releve_Heures_${currentMonth}.pdf`);
     });
