@@ -1,6 +1,6 @@
 self.addEventListener('install', (e) => {
   e.waitUntil(
-    caches.open('artt-cache-v1').then((cache) => cache.addAll(['./', './index.html', './manifest.json']))
+    caches.open('artt-cache-v2').then((cache) => cache.addAll(['./', './index.html', './manifest.json']))
   );
 });
 
