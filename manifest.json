@@ -1,0 +1,15 @@
+{
+  "short_name": "ARTT PM",
+  "name": "Suivi des Heures ARTT - PM Morzine",
+  "icons": [
+    {
+      "src": "icon-192.png",
+      "type": "image/png",
+      "sizes": "192x192"
+    }
+  ],
+  "start_url": "./index.html",
+  "background_color": "#075985",
+  "theme_color": "#075985",
+  "display": "standalone"
+}

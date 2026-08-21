@@ -1,0 +1,777 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Gestion des Heures - PM Morzine</title>
+  
+  <!-- Configuration PWA pour l'installation sur mobile -->
+  <link rel="manifest" href="manifest.json">
+  <meta name="theme-color" content="#075985">
+  <link rel="apple-touch-icon" href="icon-192.png">
+
+  <script src="https://cdn.tailwindcss.com"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.31/jspdf.plugin.autotable.min.js"></script>
+</head>
+<body class="bg-slate-100 text-slate-800 font-sans pb-16">
+
+  <header class="bg-sky-800 text-white shadow-md sticky top-0 z-10">
+    <div class="max-w-lg mx-auto p-4 flex justify-between items-center">
+      <h1 class="text-xl font-bold tracking-wide">Suivi des Heures ARTT</h1>
+      <span class="text-xs bg-sky-900 px-2.5 py-1 rounded-full text-sky-200">Morzine</span>
+    </div>
+    <div class="flex max-w-lg mx-auto border-t border-sky-700/50 bg-sky-900/40 text-sm font-semibold">
+      <button id="tabBtnSaisie" class="flex-1 py-2.5 text-center border-b-2 border-white text-white">Saisie & Solde</button>
+      <button id="tabBtnPlanning" class="flex-1 py-2.5 text-center border-b-2 border-transparent text-sky-200 hover:text-white">Planning Semaine</button>
+    </div>
+  </header>
+
+  <main class="max-w-lg mx-auto p-4 space-y-6">
+
+    <!-- Vue 1 : Saisie & Solde -->
+    <div id="viewSaisie" class="space-y-6">
+
+      <!-- Sélecteur de mois & Sauvegarde -->
+      <section class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 space-y-3">
+        <div class="flex items-center justify-between">
+          <label for="monthPicker" class="font-semibold text-slate-700">Mois :</label>
+          <input type="month" id="monthPicker" class="border border-slate-300 rounded-lg p-2 text-slate-700 focus:ring-2 focus:ring-sky-500 outline-none">
+        </div>
+        <div class="flex gap-2 pt-2 border-t border-slate-100 text-xs">
+          <button id="exportJsonBtn" class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold py-1.5 px-2 rounded border border-slate-300 flex items-center justify-center gap-1">
+            💾 Exporter Backup JSON
+          </button>
+          <label class="flex-1 bg-slate-100 hover:bg-slate-200 text-slate-700 font-semibold py-1.5 px-2 rounded border border-slate-300 text-center cursor-pointer">
+            📂 Importer
+            <input type="file" id="importJsonInput" accept=".json" class="hidden">
+          </label>
+        </div>
+      </section>
+
+      <!-- Résumé du Mois -->
+      <section class="grid grid-cols-2 gap-3">
+        <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 text-center">
+          <p class="text-xs text-slate-500 uppercase font-semibold">Planning Dû</p>
+          <p id="totalTheoretical" class="text-xl font-bold text-slate-700 mt-1">0h00</p>
+        </div>
+        <div class="bg-white p-4 rounded-xl shadow-sm border border-slate-200 text-center">
+          <p class="text-xs text-slate-500 uppercase font-semibold">Heures Faites</p>
+          <p id="totalWorked" class="text-xl font-bold text-sky-600 mt-1">0h00</p>
+        </div>
+
+        <div class="col-span-2 bg-sky-50 border border-sky-200 p-4 rounded-xl shadow-sm space-y-3">
+          <div class="text-center">
+            <p class="text-xs text-sky-700 uppercase font-semibold">Solde Global Récapitulatif (avec bonifications HS)</p>
+            <p id="totalBalance" class="text-2xl font-black text-sky-900">+0h00</p>
+          </div>
+
+          <!-- Modulateurs de solde -->
+          <div class="grid grid-cols-3 gap-2 pt-2 border-t border-sky-200 text-xs">
+            <div>
+              <label class="block text-[10px] text-slate-500 uppercase font-bold mb-1">Report M-1</label>
+              <input type="text" id="reportM1" placeholder="ex: 02:30" class="w-full border border-slate-300 rounded p-1 text-center bg-white">
+            </div>
+            <div>
+              <label class="block text-[10px] text-slate-500 uppercase font-bold mb-1">Heures Payées</label>
+              <input type="text" id="paidHours" placeholder="ex: 05:00" class="w-full border border-slate-300 rounded p-1 text-center bg-white">
+            </div>
+            <div>
+              <label class="block text-[10px] text-slate-500 uppercase font-bold mb-1">Récupérées</label>
+              <input type="text" id="recupHours" placeholder="ex: 04:00" class="w-full border border-slate-300 rounded p-1 text-center bg-white">
+            </div>
+          </div>
+
+          <!-- Ventilation exacte des HS du mois -->
+          <div class="grid grid-cols-3 gap-2 text-center border-t border-sky-200/50 pt-2">
+            <div>
+              <p class="text-[10px] text-sky-600 uppercase font-bold">HS Jour (1h=1h)</p>
+              <p id="hsNormal" class="font-bold text-sm text-sky-800">0h00</p>
+            </div>
+            <div>
+              <p class="text-[10px] text-indigo-600 uppercase font-bold">HS Nuit (1h=2h)</p>
+              <p id="hsNuit" class="font-bold text-sm text-indigo-800">0h00</p>
+            </div>
+            <div>
+              <p class="text-[10px] text-emerald-600 uppercase font-bold">HS Dim/Férié (1h=2h)</p>
+              <p id="hsDimFerie" class="font-bold text-sm text-emerald-800">0h00</p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- Saisie / Modification du jour -->
+      <section class="bg-white p-5 rounded-xl shadow-sm border border-slate-200 space-y-4">
+        <div class="flex justify-between items-center border-b pb-2">
+          <h2 id="formTitle" class="font-bold text-slate-800">Saisie journalière</h2>
+          <button id="cancelEditBtn" class="hidden text-xs text-rose-600 underline font-semibold">Annuler</button>
+        </div>
+        
+        <div class="grid grid-cols-2 gap-3">
+          <div>
+            <label class="block text-xs text-slate-500 mb-1">Date</label>
+            <input type="date" id="entryDate" class="w-full border border-slate-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-sky-500 outline-none">
+          </div>
+          <div>
+            <label class="block text-xs text-slate-500 mb-1">Type de journée</label>
+            <select id="dayType" class="w-full border border-slate-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-sky-500 outline-none">
+              <option value="WORK_FULL">Journée (08h-12h 13h30-17h30)</option>
+              <option value="WORK_HALF">Demi journée (08h-12h)</option>
+              <option value="RH">RH (Matin 08h-12h / Repos A-M)</option>
+              <option value="CONGE">C (Congé / RTT)</option>
+              <option value="FERIE">Jour Férié</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="grid grid-cols-2 gap-3 pt-2">
+          <div>
+            <label class="block text-xs text-slate-500 mb-1">Matin : Début</label>
+            <input type="time" id="mStart" step="900" value="08:00" class="w-full border border-slate-300 rounded-lg p-2 text-sm">
+          </div>
+          <div>
+            <label class="block text-xs text-slate-500 mb-1">Matin : Fin</label>
+            <input type="time" id="mEnd" step="900" value="12:00" class="w-full border border-slate-300 rounded-lg p-2 text-sm">
+          </div>
+          <div>
+            <label class="block text-xs text-slate-500 mb-1">Après-midi : Début</label>
+            <input type="time" id="aStart" step="900" value="13:30" class="w-full border border-slate-300 rounded-lg p-2 text-sm">
+          </div>
+          <div>
+            <label class="block text-xs text-slate-500 mb-1">Après-midi : Fin</label>
+            <input type="time" id="aEnd" step="900" value="17:30" class="w-full border border-slate-300 rounded-lg p-2 text-sm">
+          </div>
+        </div>
+
+        <div class="bg-slate-50 p-3 rounded-lg border border-slate-200">
+          <label class="flex items-center gap-2 text-sm text-slate-700 cursor-pointer">
+            <input type="checkbox" id="majFerie" class="rounded text-rose-600 focus:ring-rose-500"> Jour Férié (Toutes les HS à 200%)
+          </label>
+          <span id="sunNotice" class="text-xs text-emerald-600 font-semibold block mt-1 hidden">Dimanche (Toutes les HS sont doublées automatiquement)</span>
+        </div>
+
+        <div>
+          <label class="block text-xs text-slate-500 mb-1">Observations / Motif</label>
+          <input type="text" id="entryNote" placeholder="ex: Intervention 20h-23h30 (HS Jour + Nuit)..." class="w-full border border-slate-300 rounded-lg p-2 text-sm">
+        </div>
+
+        <button id="saveBtn" class="w-full bg-sky-700 hover:bg-sky-800 text-white font-bold py-3 rounded-lg transition-colors shadow">
+          Enregistrer la journée
+        </button>
+      </section>
+
+      <section class="space-y-3">
+        <div class="flex justify-between items-center">
+          <h3 class="font-bold text-slate-700">Détail des journées</h3>
+          <button id="exportPdfBtn" class="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-2 rounded-lg shadow transition-colors flex items-center gap-1">
+            Exporter PDF
+          </button>
+        </div>
+        <div id="entriesList" class="space-y-2"></div>
+      </section>
+
+    </div>
+
+    <!-- Vue 2 : Planning Semaine -->
+    <div id="viewPlanning" class="hidden space-y-6">
+      <section class="bg-white p-5 rounded-xl shadow-sm border border-slate-200 space-y-4">
+        <div class="flex justify-between items-center border-b pb-2">
+          <h2 class="font-bold text-slate-800">Saisie du Planning par Semaine</h2>
+        </div>
+
+        <div class="flex gap-2 items-end">
+          <div class="flex-1">
+            <label class="block text-xs text-slate-500 mb-1 font-semibold">Semaine du (Lundi) :</label>
+            <input type="date" id="weekStartPicker" class="w-full border border-slate-300 rounded-lg p-2 text-sm focus:ring-2 focus:ring-sky-500 outline-none">
+          </div>
+          <button id="copyPrevWeekBtn" class="bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold p-2.5 rounded-lg border border-slate-300 transition-colors">
+            📋 Copier sem. préc.
+          </button>
+        </div>
+
+        <div id="weeklyInputs" class="space-y-3 pt-2"></div>
+
+        <button id="saveWeeklyPlanningBtn" class="w-full bg-sky-700 hover:bg-sky-800 text-white font-bold py-3 rounded-lg transition-colors shadow">
+          Enregistrer la Semaine
+        </button>
+
+        <div class="bg-slate-50 p-3 rounded-lg border border-slate-200 text-xs space-y-1">
+          <p class="font-bold text-slate-700 mb-1">Bilan de la semaine sélectionnée :</p>
+          <div class="flex justify-between text-slate-600">
+            <span>Prévu / Dû : <strong id="weekTheoDisplay" class="text-slate-800">0h00</strong></span>
+            <span>Réalisé : <strong id="weekWorkDisplay" class="text-sky-700">0h00</strong></span>
+            <span>Solde : <strong id="weekBalDisplay" class="text-slate-800">0h00</strong></span>
+          </div>
+        </div>
+      </section>
+    </div>
+
+  </main>
+
+  <script>
+    // Activation du Service Worker PWA
+    if ('serviceWorker' in navigator) {
+      navigator.serviceWorker.register('sw.js').catch(err => console.log('SW Registration failed:', err));
+    }
+
+    const tabBtnSaisie = document.getElementById('tabBtnSaisie');
+    const tabBtnPlanning = document.getElementById('tabBtnPlanning');
+    const viewSaisie = document.getElementById('viewSaisie');
+    const viewPlanning = document.getElementById('viewPlanning');
+
+    tabBtnSaisie.addEventListener('click', () => {
+      viewSaisie.classList.remove('hidden'); viewPlanning.classList.add('hidden');
+      tabBtnSaisie.className = "flex-1 py-2.5 text-center border-b-2 border-white text-white";
+      tabBtnPlanning.className = "flex-1 py-2.5 text-center border-b-2 border-transparent text-sky-200 hover:text-white";
+    });
+
+    tabBtnPlanning.addEventListener('click', () => {
+      viewPlanning.classList.remove('hidden'); viewSaisie.classList.add('hidden');
+      tabBtnPlanning.className = "flex-1 py-2.5 text-center border-b-2 border-white text-white";
+      tabBtnSaisie.className = "flex-1 py-2.5 text-center border-b-2 border-transparent text-sky-200 hover:text-white";
+      renderWeeklyInputs(); // Correctif : recalcul et rendu du planning à l'ouverture de l'onglet
+    });
+
+    const monthPicker = document.getElementById('monthPicker');
+    const entryDate = document.getElementById('entryDate');
+    const dayType = document.getElementById('dayType');
+    const mStart = document.getElementById('mStart'); const mEnd = document.getElementById('mEnd');
+    const aStart = document.getElementById('aStart'); const aEnd = document.getElementById('aEnd');
+    const entryNote = document.getElementById('entryNote');
+    const majFerie = document.getElementById('majFerie');
+    const sunNotice = document.getElementById('sunNotice');
+    const saveBtn = document.getElementById('saveBtn');
+    const cancelEditBtn = document.getElementById('cancelEditBtn');
+    const entriesList = document.getElementById('entriesList');
+
+    const reportM1 = document.getElementById('reportM1');
+    const paidHours = document.getElementById('paidHours');
+    const recupHours = document.getElementById('recupHours');
+
+    const today = new Date();
+    entryDate.value = today.toISOString().split('T')[0];
+    monthPicker.value = today.toISOString().slice(0, 7);
+
+    const weekStartPicker = document.getElementById('weekStartPicker');
+    const currentDay = today.getDay();
+    const diffToMonday = today.getDate() - currentDay + (currentDay === 0 ? -6 : 1);
+    const currentMonday = new Date(today.setDate(diffToMonday));
+    weekStartPicker.value = currentMonday.toISOString().split('T')[0];
+
+    function getStoredData() { return JSON.parse(localStorage.getItem('artt_hours_data') || '{}'); }
+    function saveData(data) { localStorage.setItem('artt_hours_data', JSON.stringify(data)); }
+    function getStoredPlanning() { return JSON.parse(localStorage.getItem('artt_ludovic_planning') || '{}'); }
+    function savePlanning(data) { localStorage.setItem('artt_ludovic_planning', JSON.stringify(data)); }
+    function getStoredMonthConfigs() { return JSON.parse(localStorage.getItem('artt_month_configs') || '{}'); }
+    function saveMonthConfigs(configs) { localStorage.setItem('artt_month_configs', JSON.stringify(configs)); }
+
+    function parseFormattedToMinutes(str) {
+      if (!str || !str.trim()) return 0;
+      const cleanStr = str.replace('h', ':').trim();
+      const isNegative = cleanStr.startsWith('-');
+      const parts = cleanStr.replace('-', '').split(':');
+      const h = parseInt(parts[0], 10) || 0;
+      const m = parseInt(parts[1], 10) || 0;
+      const total = h * 60 + m;
+      return isNegative ? -total : total;
+    }
+
+    function timeToMinutes(timeStr) {
+      if (!timeStr) return 0;
+      const [h, m] = timeStr.split(':').map(Number);
+      return h * 60 + m;
+    }
+
+    function roundTo15Minutes(mins) { return Math.round(mins / 15) * 15; }
+
+    function formatMinutes(mins) {
+      if (mins === 0) return "0h00";
+      const sign = mins < 0 ? '-' : '';
+      const abs = Math.abs(mins);
+      const h = Math.floor(abs / 60);
+      const m = abs % 60;
+      return `${sign}${h}h${m.toString().padStart(2, '0')}`;
+    }
+
+    entryDate.addEventListener('change', () => {
+      const selectedDate = entryDate.value;
+      if (!selectedDate) return;
+      const dObj = new Date(selectedDate);
+      if (dObj.getDay() === 0) sunNotice.classList.remove('hidden');
+      else sunNotice.classList.add('hidden');
+
+      const planning = getStoredPlanning();
+      if (planning[selectedDate]) {
+        const pType = planning[selectedDate].type;
+        if (pType === 'JOURNEE') dayType.value = 'WORK_FULL';
+        else if (pType === 'DEMI') dayType.value = 'WORK_HALF';
+        else if (pType === 'RH') dayType.value = 'RH';
+        else if (pType === 'C') dayType.value = 'CONGE';
+        dayType.dispatchEvent(new Event('change'));
+      }
+    });
+
+    dayType.addEventListener('change', () => {
+      const val = dayType.value;
+      if (val === 'WORK_FULL') {
+        mStart.value = "08:00"; mEnd.value = "12:00";
+        aStart.value = "13:30"; aEnd.value = "17:30";
+      } else if (val === 'WORK_HALF' || val === 'RH') {
+        mStart.value = "08:00"; mEnd.value = "12:00";
+        aStart.value = ""; aEnd.value = "";
+      } else if (['CONGE', 'FERIE'].includes(val)) {
+        mStart.value = ""; mEnd.value = "";
+        aStart.value = ""; aEnd.value = "";
+      }
+    });
+
+    // LOGIQUE DE CALCUL PRECISE MINUTE PAR MINUTE AVEC VENTILATION DE NUIT / JOUR
+    function calculateDayHours(entry, dateKey) {
+      let theoretical = 480; // 8h par défaut
+      const planning = getStoredPlanning();
+
+      if (planning[dateKey] && planning[dateKey].theoretical !== undefined) {
+        theoretical = planning[dateKey].theoretical;
+      } else {
+        if (entry.type === 'WORK_HALF' || entry.type === 'RH') theoretical = 240;
+        else if (entry.type === 'CONGE' || entry.type === 'FERIE') theoretical = 480;
+      }
+
+      const spans = [];
+      let worked = 0;
+
+      if (entry.mStart && entry.mEnd) {
+        const start = timeToMinutes(entry.mStart);
+        const end = timeToMinutes(entry.mEnd);
+        if (end > start) { worked += (end - start); spans.push({ start, end }); }
+      }
+      if (entry.aStart && entry.aEnd) {
+        const start = timeToMinutes(entry.aStart);
+        const end = timeToMinutes(entry.aEnd);
+        if (end > start) { worked += (end - start); spans.push({ start, end }); }
+      }
+
+      if (['CONGE', 'FERIE'].includes(entry.type)) worked = theoretical;
+
+      const rawBalance = worked - theoretical;
+      let hsJour = 0, hsNuit = 0, hsDimFerie = 0;
+
+      const dateObj = new Date(dateKey);
+      const isSunday = dateObj.getDay() === 0;
+      const isSpecialDay = isSunday || entry.majFerie || entry.type === 'FERIE';
+
+      if (rawBalance > 0) {
+        if (isSpecialDay) {
+          // Dimanche & Férié : Tout dépassement est doublé (200%)
+          hsDimFerie = rawBalance;
+        } else {
+          // Découpage minute par minute des minutes travaillées
+          const workedMinutesArray = [];
+          spans.forEach(span => {
+            for (let m = span.start; m < span.end; m++) {
+              workedMinutesArray.push(m);
+            }
+          });
+
+          // L'obligation théorique est imputée prioritairement sur les heures de jour (07h-22h)
+          let remainingTheo = theoretical;
+          const extraMinutes = [];
+
+          for (let i = 0; i < workedMinutesArray.length; i++) {
+            const m = workedMinutesArray[i];
+            const minuteOfDay = m % 1440;
+            const isDayMinute = (minuteOfDay >= 420 && minuteOfDay < 1320); // 07h00 à 22h00
+
+            if (remainingTheo > 0 && isDayMinute) {
+              remainingTheo--;
+            } else {
+              extraMinutes.push(m);
+            }
+          }
+
+          if (remainingTheo > 0) {
+            extraMinutes.splice(0, remainingTheo);
+          }
+
+          extraMinutes.forEach(m => {
+            const minuteOfDay = m % 1440;
+            const isNight = (minuteOfDay >= 1320 || minuteOfDay < 420); // 22h00 à 07h00
+            if (isNight) hsNuit++;
+            else hsJour++;
+          });
+        }
+      }
+
+      const weightedBalance = (hsJour * 1) + (hsNuit * 2) + (hsDimFerie * 2) + (rawBalance < 0 ? rawBalance : 0);
+
+      return {
+        theoretical,
+        worked,
+        rawBalance: roundTo15Minutes(rawBalance),
+        hsJour: roundTo15Minutes(hsJour),
+        hsNuit: roundTo15Minutes(hsNuit),
+        hsDimFerie: roundTo15Minutes(hsDimFerie),
+        weightedBalance: roundTo15Minutes(weightedBalance)
+      };
+    }
+
+    saveBtn.addEventListener('click', () => {
+      const date = entryDate.value;
+      if (!date) return;
+      const data = getStoredData();
+      data[date] = {
+        type: dayType.value,
+        mStart: mStart.value, mEnd: mEnd.value,
+        aStart: aStart.value, aEnd: aEnd.value,
+        note: entryNote.value,
+        majFerie: majFerie.checked || dayType.value === 'FERIE'
+      };
+      saveData(data); resetForm(); renderMonth();
+    });
+
+    function editEntry(date) {
+      const data = getStoredData();
+      const entry = data[date];
+      if (!entry) return;
+      entryDate.value = date;
+      dayType.value = entry.type || 'WORK_FULL';
+      mStart.value = entry.mStart || ''; mEnd.value = entry.mEnd || '';
+      aStart.value = entry.aStart || ''; aEnd.value = entry.aEnd || '';
+      entryNote.value = entry.note || '';
+      majFerie.checked = !!entry.majFerie;
+      
+      document.getElementById('formTitle').textContent = `Modification du ${date}`;
+      saveBtn.textContent = "Mettre à jour";
+      cancelEditBtn.classList.remove('hidden');
+      window.scrollTo({ top: 0, behavior: 'smooth' });
+    }
+
+    function deleteEntry(date) {
+      if (confirm(`Voulez-vous supprimer la journée du ${date} ?`)) {
+        const data = getStoredData();
+        delete data[date]; saveData(data); renderMonth();
+      }
+    }
+
+    function resetForm() {
+      document.getElementById('formTitle').textContent = "Saisie journalière";
+      saveBtn.textContent = "Enregistrer la journée";
+      cancelEditBtn.classList.add('hidden');
+      entryNote.value = ""; majFerie.checked = false;
+    }
+    cancelEditBtn.addEventListener('click', resetForm);
+
+    function saveMonthConfig() {
+      const currentMonth = monthPicker.value;
+      const configs = getStoredMonthConfigs();
+      configs[currentMonth] = {
+        reportM1: reportM1.value,
+        paidHours: paidHours.value,
+        recupHours: recupHours.value
+      };
+      saveMonthConfigs(configs);
+    }
+
+    [reportM1, paidHours, recupHours].forEach(el => el.addEventListener('input', () => {
+      saveMonthConfig(); renderMonth();
+    }));
+
+    function loadMonthConfig() {
+      const currentMonth = monthPicker.value;
+      const configs = getStoredMonthConfigs();
+      const cfg = configs[currentMonth] || {};
+      reportM1.value = cfg.reportM1 || '';
+      paidHours.value = cfg.paidHours || '';
+      recupHours.value = cfg.recupHours || '';
+    }
+
+    function renderMonth() {
+      loadMonthConfig();
+      const currentMonth = monthPicker.value;
+      const data = getStoredData();
+      const planning = getStoredPlanning();
+      entriesList.innerHTML = '';
+      
+      let totalTheo = 0, totalWork = 0;
+      let totalHsJour = 0, totalHsNuit = 0, totalHsDimFerie = 0;
+      let totalWeightedBalance = 0;
+
+      Object.keys(planning).filter(d => d.startsWith(currentMonth)).forEach(d => {
+        totalTheo += planning[d].theoretical || 0;
+      });
+
+      const dates = Object.keys(data).filter(d => d.startsWith(currentMonth)).sort();
+      if (dates.length === 0) entriesList.innerHTML = `<p class="text-xs text-slate-400 text-center py-4">Aucune journée enregistrée.</p>`;
+
+      dates.forEach(date => {
+        const entry = data[date];
+        const res = calculateDayHours(entry, date);
+        
+        if (!planning[date]) totalTheo += res.theoretical;
+        totalWork += res.worked;
+
+        totalHsJour += res.hsJour;
+        totalHsNuit += res.hsNuit;
+        totalHsDimFerie += res.hsDimFerie;
+        totalWeightedBalance += res.weightedBalance;
+
+        const dateObj = new Date(date);
+        const dateFormatted = dateObj.toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' });
+        
+        let hsDetailStr = "";
+        if (res.hsJour > 0) hsDetailStr += `Jour: +${formatMinutes(res.hsJour)} `;
+        if (res.hsNuit > 0) hsDetailStr += `Nuit (x2): +${formatMinutes(res.hsNuit * 2)} `;
+        if (res.hsDimFerie > 0) hsDetailStr += `Dim/Férié (x2): +${formatMinutes(res.hsDimFerie * 2)} `;
+
+        const balanceClass = res.weightedBalance > 0 ? 'text-emerald-600 font-bold' : (res.weightedBalance < 0 ? 'text-rose-600 font-bold' : 'text-slate-500');
+
+        const div = document.createElement('div');
+        div.className = "bg-white p-3 rounded-lg border border-slate-200 shadow-sm flex justify-between items-center text-xs";
+        div.innerHTML = `
+          <div>
+            <p class="font-bold text-slate-800 capitalize">${dateFormatted}</p>
+            <p class="text-slate-500">${entry.mStart || '--'} - ${entry.mEnd || '--'} | ${entry.aStart || '--'} - ${entry.aEnd || '--'}</p>
+            ${entry.note ? `<p class="text-slate-400 italic mt-0.5">${entry.note}</p>` : ''}
+          </div>
+          <div class="flex items-center gap-3">
+            <div class="text-right">
+              <p class="font-semibold text-slate-700">${formatMinutes(res.worked)}</p>
+              <p class="${balanceClass}">${res.weightedBalance > 0 ? '+' : ''}${formatMinutes(res.weightedBalance)}</p>
+              ${hsDetailStr ? `<span class="block text-[9px] bg-sky-50 text-sky-700 rounded px-1 mt-0.5 border border-sky-100 font-medium">${hsDetailStr}</span>` : ''}
+            </div>
+            <div class="flex flex-col gap-1 border-l pl-2 border-slate-100">
+              <button onclick="editEntry('${date}')" class="text-slate-400 hover:text-sky-600">✏️</button>
+              <button onclick="deleteEntry('${date}')" class="text-slate-400 hover:text-rose-600">🗑️</button>
+            </div>
+          </div>
+        `;
+        entriesList.appendChild(div);
+      });
+
+      const rM1Mins = parseFormattedToMinutes(reportM1.value);
+      const paidMins = parseFormattedToMinutes(paidHours.value);
+      const recupMins = parseFormattedToMinutes(recupHours.value);
+
+      const netGlobalBalance = roundTo15Minutes(totalWeightedBalance + rM1Mins - paidMins - recupMins);
+
+      document.getElementById('totalTheoretical').textContent = formatMinutes(totalTheo);
+      document.getElementById('totalWorked').textContent = formatMinutes(totalWork);
+      
+      const balEl = document.getElementById('totalBalance');
+      balEl.textContent = `${netGlobalBalance > 0 ? '+' : ''}${formatMinutes(netGlobalBalance)}`;
+      balEl.className = `text-2xl font-black ${netGlobalBalance > 0 ? 'text-emerald-700' : (netGlobalBalance < 0 ? 'text-rose-700' : 'text-slate-600')}`;
+
+      document.getElementById('hsNormal').textContent = formatMinutes(totalHsJour);
+      document.getElementById('hsNuit').textContent = `${formatMinutes(totalHsNuit)} (${formatMinutes(totalHsNuit * 2)})`;
+      document.getElementById('hsDimFerie').textContent = `${formatMinutes(totalHsDimFerie)} (${formatMinutes(totalHsDimFerie * 2)})`;
+    }
+    monthPicker.addEventListener('change', renderMonth);
+
+    function renderWeeklyInputs() {
+      const container = document.getElementById('weeklyInputs');
+      container.innerHTML = '';
+      
+      const startStr = weekStartPicker.value;
+      if (!startStr) return;
+
+      const startDate = new Date(startStr);
+      const planning = getStoredPlanning();
+      const data = getStoredData();
+
+      let weekTheo = 0, weekWork = 0, weekWeightedBal = 0;
+
+      for (let i = 0; i < 7; i++) {
+        const d = new Date(startDate);
+        d.setDate(startDate.getDate() + i);
+        const dateKey = d.toISOString().split('T')[0];
+        const dayLabel = d.toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'short' });
+        
+        const currentVal = planning[dateKey] ? planning[dateKey].type : (i < 5 ? 'JOURNEE' : 'RH');
+
+        let dayTheo = planning[dateKey] ? planning[dateKey].theoretical : (i < 5 ? 480 : 240);
+        weekTheo += dayTheo;
+
+        if (data[dateKey]) {
+          const res = calculateDayHours(data[dateKey], dateKey);
+          weekWork += res.worked;
+          weekWeightedBal += res.weightedBalance;
+        }
+
+        const row = document.createElement('div');
+        row.className = "flex justify-between items-center bg-slate-50 p-2.5 rounded-lg border border-slate-200 text-xs";
+        row.innerHTML = `
+          <span class="font-semibold text-slate-700 capitalize w-1/3">${dayLabel}</span>
+          <select data-date="${dateKey}" class="week-day-select border border-slate-300 rounded p-1.5 bg-white text-slate-700 focus:ring-2 focus:ring-sky-500 outline-none w-2/3">
+            <option value="JOURNEE" ${currentVal === 'JOURNEE' ? 'selected' : ''}>Journée (08h-12h 13h30-17h30)</option>
+            <option value="DEMI" ${currentVal === 'DEMI' ? 'selected' : ''}>Demi journée (08h-12h)</option>
+            <option value="RH" ${currentVal === 'RH' ? 'selected' : ''}>RH (Matin 08h-12h / Repos A-M)</option>
+            <option value="C" ${currentVal === 'C' ? 'selected' : ''}>C (Congé)</option>
+          </select>
+        `;
+        container.appendChild(row);
+      }
+
+      // Écouteur pour sauvegarde automatique lors d'un changement de sélection dans le planning
+      document.querySelectorAll('.week-day-select').forEach(sel => {
+        sel.addEventListener('change', () => {
+          autoSaveWeeklyPlanning();
+        });
+      });
+
+      document.getElementById('weekTheoDisplay').textContent = formatMinutes(weekTheo);
+      document.getElementById('weekWorkDisplay').textContent = formatMinutes(weekWork);
+      const wBalEl = document.getElementById('weekBalDisplay');
+      wBalEl.textContent = `${weekWeightedBal > 0 ? '+' : ''}${formatMinutes(weekWeightedBal)}`;
+      wBalEl.className = weekWeightedBal > 0 ? 'text-emerald-600 font-bold' : (weekWeightedBal < 0 ? 'text-rose-600 font-bold' : 'text-slate-800');
+    }
+
+    weekStartPicker.addEventListener('change', renderWeeklyInputs);
+
+    function autoSaveWeeklyPlanning() {
+      const selects = document.querySelectorAll('.week-day-select');
+      const planning = getStoredPlanning();
+
+      selects.forEach(select => {
+        const dateKey = select.getAttribute('data-date');
+        const val = select.value;
+        
+        let theoretical = 0;
+        if (val === 'JOURNEE' || val === 'C') theoretical = 480;
+        else if (val === 'DEMI' || val === 'RH') theoretical = 240;
+
+        planning[dateKey] = { type: val, theoretical: theoretical };
+      });
+
+      savePlanning(planning);
+      renderMonth();
+    }
+
+    document.getElementById('copyPrevWeekBtn').addEventListener('click', () => {
+      const currentStartStr = weekStartPicker.value;
+      if (!currentStartStr) return;
+
+      const currentStart = new Date(currentStartStr);
+      const prevStart = new Date(currentStart);
+      prevStart.setDate(currentStart.getDate() - 7);
+
+      const planning = getStoredPlanning();
+      let copiedCount = 0;
+
+      for (let i = 0; i < 7; i++) {
+        const pDay = new Date(prevStart); pDay.setDate(prevStart.getDate() + i);
+        const cDay = new Date(currentStart); cDay.setDate(currentStart.getDate() + i);
+
+        const pKey = pDay.toISOString().split('T')[0];
+        const cKey = cDay.toISOString().split('T')[0];
+
+        if (planning[pKey]) {
+          planning[cKey] = { ...planning[pKey] };
+          copiedCount++;
+        }
+      }
+
+      if (copiedCount > 0) {
+        savePlanning(planning);
+        renderWeeklyInputs();
+        alert("Semaine précédente copiée avec succès !");
+      } else {
+        alert("Aucun planning trouvé pour la semaine précédente.");
+      }
+    });
+
+    document.getElementById('saveWeeklyPlanningBtn').addEventListener('click', () => {
+      autoSaveWeeklyPlanning();
+      alert("Planning enregistré !");
+      renderWeeklyInputs();
+    });
+
+    // EXPORT / IMPORT JSON
+    document.getElementById('exportJsonBtn').addEventListener('click', () => {
+      const backup = {
+        artt_hours_data: getStoredData(),
+        artt_ludovic_planning: getStoredPlanning(),
+        artt_month_configs: getStoredMonthConfigs()
+      };
+      const blob = new Blob([JSON.stringify(backup, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `ARTT_Sauvegarde_${new Date().toISOString().split('T')[0]}.json`;
+      a.click();
+    });
+
+    document.getElementById('importJsonInput').addEventListener('change', (e) => {
+      const file = e.target.files[0];
+      if (!file) return;
+      const reader = new FileReader();
+      reader.onload = (event) => {
+        try {
+          const data = JSON.parse(event.target.result);
+          if (data.artt_hours_data) localStorage.setItem('artt_hours_data', JSON.stringify(data.artt_hours_data));
+          if (data.artt_ludovic_planning) localStorage.setItem('artt_ludovic_planning', JSON.stringify(data.artt_ludovic_planning));
+          if (data.artt_month_configs) localStorage.setItem('artt_month_configs', JSON.stringify(data.artt_month_configs));
+          alert("Données importées avec succès !");
+          renderWeeklyInputs();
+          renderMonth();
+        } catch (err) {
+          alert("Erreur lors de l'importation du fichier JSON.");
+        }
+      };
+      reader.readAsText(file);
+    });
+
+    // EXPORT PDF EXCLUSIF (jsPDF)
+    document.getElementById('exportPdfBtn').addEventListener('click', () => {
+      const { jsPDF } = window.jspdf; const doc = new jsPDF();
+      const currentMonth = monthPicker.value;
+      const data = getStoredData();
+      const dates = Object.keys(data).filter(d => d.startsWith(currentMonth)).sort();
+
+      doc.setFontSize(16); doc.text("COMMUNE DE MORZINE - POLICE MUNICIPALE", 14, 15);
+      doc.setFontSize(11); doc.text(`Relevé d'Heures & ARTT (${currentMonth})`, 14, 23);
+
+      const tableRows = [];
+      let totalTheo = 0, totalWork = 0, totalWeightedBal = 0;
+
+      dates.forEach(date => {
+        const entry = data[date];
+        const res = calculateDayHours(entry, date);
+        totalTheo += res.theoretical; totalWork += res.worked; totalWeightedBal += res.weightedBalance;
+        
+        let hsDetails = [];
+        if (res.hsJour > 0) hsDetails.push(`Jour: +${formatMinutes(res.hsJour)}`);
+        if (res.hsNuit > 0) hsDetails.push(`Nuit (x2): +${formatMinutes(res.hsNuit * 2)}`);
+        if (res.hsDimFerie > 0) hsDetails.push(`Dim/Férié (x2): +${formatMinutes(res.hsDimFerie * 2)}`);
+
+        tableRows.push([
+          date,
+          `${entry.mStart || ''}-${entry.mEnd || ''} | ${entry.aStart || ''}-${entry.aEnd || ''}`,
+          formatMinutes(res.worked), formatMinutes(res.theoretical),
+          `${res.weightedBalance > 0 ? '+' : ''}${formatMinutes(res.weightedBalance)}`,
+          hsDetails.join(' | ') || '-', entry.note || ''
+        ]);
+      });
+
+      doc.autoTable({
+        startY: 30, head: [['Date', 'Horaires', 'Réalisé', 'Prévu', 'Solde (+Bonif)', 'Détail HS', 'Notes']],
+        body: tableRows, styles: { fontSize: 8 }, headStyles: { fillColor: [14, 116, 144] }
+      });
+
+      const y = doc.lastAutoTable.finalY + 10;
+      const rM1 = parseFormattedToMinutes(reportM1.value);
+      const paid = parseFormattedToMinutes(paidHours.value);
+      const recup = parseFormattedToMinutes(recupHours.value);
+      const netBal = totalWeightedBal + rM1 - paid - recup;
+
+      doc.text(`Heures faites : ${formatMinutes(totalWork)} | Prévu : ${formatMinutes(totalTheo)}`, 14, y);
+      doc.text(`Report M-1 : ${formatMinutes(rM1)} | Payées : ${formatMinutes(paid)} | Récupérées : ${formatMinutes(recup)}`, 14, y + 6);
+      doc.text(`SOLDE NET RÉCAPITULATIF (AVEC BONIFICATIONS HS) : ${formatMinutes(netBal)}`, 14, y + 12);
+
+      doc.save(`Releve_Heures_${currentMonth}.pdf`);
+    });
+
+    renderWeeklyInputs();
+    renderMonth();
+  </script>
+</body>
+</html>
